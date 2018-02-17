@@ -7,6 +7,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -52,11 +53,14 @@ public class SongAdapter extends BaseAdapter {
 		//get title and artist views
 		TextView songView = (TextView)songLay.findViewById(R.id.song_title);
 		TextView artistView = (TextView)songLay.findViewById(R.id.song_artist);
+		ImageView coverArt = (ImageView)songLay.findViewById(R.id.CoverArt);
+
 		//get song using position
 		Song currSong = songs.get(position);
 		//get title and artist strings
 		songView.setText(currSong.getTitle());
 		artistView.setText(currSong.getArtist());
+		coverArt.setImageBitmap(currSong.getAlbumArt());
 		//set position as tag
 		songLay.setTag(position);
 		return songLay;

@@ -1,11 +1,21 @@
 package com.example.nova.musicplayer;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 
 import com.example.nova.musicplayer.MusicService.MusicBinder;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.database.MergeCursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.app.Activity;
@@ -15,6 +25,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.database.Cursor;
+import android.provider.MediaStore;
+import android.support.annotation.RequiresApi;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -28,12 +43,19 @@ import android.widget.MediaController.MediaPlayerControl;
  * Sue Smith - February 2014
  */
 
+
+
+
 public class MainActivity extends Activity implements MediaPlayerControl {
 
+	private static final int REQUEST_WRITE_PERMISSION = 786;
+	private static final String DEBUG_TAG = "DEBUG";
+
 	//song list variables
-//	private ArrayList<Song> songList;
 	private ListView songView;
 	private SongCollections songCollections;
+	private MusicPlayerSettings musicPlayerSettings;
+	private ImportSongSystem importSongSystem;
 
 	//service
 	private MusicService musicSrv;
@@ -47,26 +69,43 @@ public class MainActivity extends Activity implements MediaPlayerControl {
 	//activity and playback pause flags
 	private boolean paused=false, playbackPaused=false;
 
+	@RequiresApi(api = Build.VERSION_CODES.M)
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_main);
-
-		//retrieve list view
 		songView = (ListView)findViewById(R.id.song_list);
-		//instantiate list
-//		songList = new ArrayList<Song>();
+		checkPermissions();
+
+	}
+
+
+
+	public void initMusicPlayer() {
 
 		songCollections = new SongCollections();
 
+		musicPlayerSettings = new MusicPlayerSettings();
+
+		importSongSystem = new ImportSongSystem();
+
 		//get songs from device
-		getSongList();
-		//sort alphabetically by title
-		Collections.sort(songCollections.getAllCollection().getSongList(), new Comparator<Song>(){
-			public int compare(Song a, Song b){
-				return a.getTitle().compareTo(b.getTitle());
-			}
-		});
+//		scanSongFolder();
+//		//getSongFolderList();
+//		//sort alphabetically by title
+//		Collections.sort(songCollections.getAllCollection().getSongList(), new Comparator<Song>(){
+//			public int compare(Song a, Song b){
+//				return a.getTitle().compareTo(b.getTitle());
+//			}
+//		});
+
+		//scan for songs to import
+		importSongSystem.scanEntireStorageForSongs(this);
+		//songCollections.addSongListToAllCollection(importSongSystem.getSongList());
+
+		scanSongFolder();
+
+
 		//create and set adapter
 		SongAdapter songAdt = new SongAdapter(this, songCollections.getAllCollection().getSongList());
 		songView.setAdapter(songAdt);
@@ -74,6 +113,155 @@ public class MainActivity extends Activity implements MediaPlayerControl {
 		//setup controller
 		setController();
 	}
+
+
+
+
+
+	public void scanSongFolder() {
+		String selection = MediaStore.Audio.Media.IS_MUSIC + " !=" + 0
+				+ " AND " + MediaStore.Audio.Media.DATA + " LIKE '" + importSongSystem.getSongFolderPath() + "/%'";
+
+		//query external audio
+		ContentResolver musicResolver = getContentResolver();
+		Uri musicUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+
+		//only get songs from specific song folder
+		Cursor musicCursor = musicResolver.query(musicUri, null, selection, null, null);
+
+
+
+
+		//iterate over results if valid
+
+		if(musicCursor!=null && musicCursor.moveToFirst()){
+			//get columns
+			int titleColumn = musicCursor.getColumnIndex
+					(android.provider.MediaStore.Audio.Media.TITLE);
+			int idColumn = musicCursor.getColumnIndex
+					(android.provider.MediaStore.Audio.Media._ID);
+			int artistColumn = musicCursor.getColumnIndex
+					(android.provider.MediaStore.Audio.Media.ARTIST);
+			int songPathColumn = musicCursor.getColumnIndex(
+					android.provider.MediaStore.Audio.Media.DATA);
+			int albumColumn = musicCursor.getColumnIndex(
+					android.provider.MediaStore.Audio.Media.ALBUM_ID);
+			int trackColumn = musicCursor.getColumnIndex(
+					android.provider.MediaStore.Audio.Media.TRACK);
+			int durationColumn = musicCursor.getColumnIndex(
+					android.provider.MediaStore.Audio.Media.DURATION);
+
+			//add songs to list
+			do {
+				long thisId = musicCursor.getLong(idColumn);
+				String thisTitle = musicCursor.getString(titleColumn);
+				String thisArtist = musicCursor.getString(artistColumn);
+				String songPath = musicCursor.getString(songPathColumn);
+
+				int albumId = musicCursor.getInt(albumColumn);
+				int trackId = musicCursor.getInt(trackColumn);
+				Long duration = musicCursor.getLong(durationColumn);
+
+				//get duration of song in seconds from milliseconds
+				Long durationInSeconds = duration/1000;
+
+
+				MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+				mmr.setDataSource(songPath);
+
+				Bitmap albumArt = null;
+
+				//get music cover art
+				byte[] data = mmr.getEmbeddedPicture();
+				if (data != null) {
+					// Display method for cover art is through bitmap
+					albumArt = BitmapFactory.decodeByteArray(data, 0, data.length);
+				}
+				songCollections.getAllCollection().getSongList().add(new Song(thisId, thisTitle, thisArtist, songPath, albumId, trackId, duration, albumArt));
+			}
+			while (musicCursor.moveToNext());
+		}
+
+		if(musicCursor != null) {
+			musicCursor.close();
+		}
+	}
+
+
+
+
+
+
+
+
+
+
+//	//    //method to retrieve song info from device
+//	public void getAllSongsExceptSongFolder() {
+//		//query external audio
+//		ContentResolver musicResolver = getContentResolver();
+//		Uri musicUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+//		Cursor musicCursor = musicResolver.query(musicUri, null, MediaStore.Images.Media.DATA + " not like ? ", new String[] { "%" + importSongSystem.getSongFolderPath() + "%" } , null);
+//		//iterate over results if valid
+//		if(musicCursor!=null && musicCursor.moveToFirst()){
+//			//get columns
+//			int titleColumn = musicCursor.getColumnIndex
+//					(android.provider.MediaStore.Audio.Media.TITLE);
+//			int idColumn = musicCursor.getColumnIndex
+//					(android.provider.MediaStore.Audio.Media._ID);
+//			int artistColumn = musicCursor.getColumnIndex
+//					(android.provider.MediaStore.Audio.Media.ARTIST);
+//			//add songs to list
+//			do {
+//				long thisId = musicCursor.getLong(idColumn);
+//				String thisTitle = musicCursor.getString(titleColumn);
+//				String thisArtist = musicCursor.getString(artistColumn);
+//
+//				songCollections.getAllCollection().addSong(new Song(thisId, thisTitle, thisArtist));
+//			}
+//			while (musicCursor.moveToNext());
+//		}
+//	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	@RequiresApi(api = Build.VERSION_CODES.M)
+	private void checkPermissions() {
+		if (ContextCompat.checkSelfPermission(getApplicationContext(),
+				Manifest.permission.WRITE_EXTERNAL_STORAGE)
+				!= PackageManager.PERMISSION_GRANTED) {
+			requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_WRITE_PERMISSION);
+		}
+        else {
+			initMusicPlayer();
+        }
+	}
+
+	@Override
+	public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+		if (requestCode == REQUEST_WRITE_PERMISSION && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+			initMusicPlayer();
+		}
+		else {
+			System.exit(1);
+		}
+	}
+
+
+
+
 
 	//connect to the service
 	private ServiceConnection musicConnection = new ServiceConnection(){
@@ -139,32 +327,11 @@ public class MainActivity extends Activity implements MediaPlayerControl {
 		return super.onOptionsItemSelected(item);
 	}
 
-	//method to retrieve song info from device
-	public void getSongList(){
-		//query external audio
-		ContentResolver musicResolver = getContentResolver();
-		Uri musicUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-		Cursor musicCursor = musicResolver.query(musicUri, null, null, null, null);
-		//iterate over results if valid
-		if(musicCursor!=null && musicCursor.moveToFirst()){
-			//get columns
-			int titleColumn = musicCursor.getColumnIndex
-					(android.provider.MediaStore.Audio.Media.TITLE);
-			int idColumn = musicCursor.getColumnIndex
-					(android.provider.MediaStore.Audio.Media._ID);
-			int artistColumn = musicCursor.getColumnIndex
-					(android.provider.MediaStore.Audio.Media.ARTIST);
-			//add songs to list
-			do {
-				long thisId = musicCursor.getLong(idColumn);
-				String thisTitle = musicCursor.getString(titleColumn);
-				String thisArtist = musicCursor.getString(artistColumn);
-//				songList.add(new Song(thisId, thisTitle, thisArtist));
-				songCollections.getAllCollection().getSongList().add(new Song(thisId, thisTitle, thisArtist));
-			} 
-			while (musicCursor.moveToNext());
-		}
-	}
+
+
+
+
+
 
 	@Override
 	public boolean canPause() {

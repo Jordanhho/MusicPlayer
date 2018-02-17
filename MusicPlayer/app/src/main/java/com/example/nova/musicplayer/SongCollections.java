@@ -67,8 +67,16 @@ public class SongCollections {
         return playLists;
     }
 
-    public void addSongToCollection(Song song) {
 
+
+    public void addSongListToAllCollection(List<Song> songList) {
+        for(Song s: songList) {
+            allCollection.getSongList().add(s);
+        }
+    }
+
+    public void addSongToCollectionAllCollection(Song song) {
+        allCollection.getSongList().add(song);
     }
 
     public void addNewPlaylist(String name, List<Song> songList) {
@@ -77,7 +85,7 @@ public class SongCollections {
 
     public void removePlayList(String name) {
         for(Playlist p: playLists) {
-            if(p.getName() == name) {
+            if(p.getName().equals(name)) {
                 playLists.remove(p);
                 break;
             }
@@ -96,7 +104,7 @@ public class SongCollections {
     public boolean ifSongExists(String songTitle) {
         boolean found = false;
         for(Song s: allCollection.getSongList()) {
-            if(s.getTitle() == songTitle) {
+            if(s.getTitle().equals(songTitle)) {
                 found = true;
                 break;
             }
